@@ -1,7 +1,6 @@
 class Feature(object):
 
-    def __init__(self, point, mean, covariance):
-        self.point = point
+    def __init__(self, mean, covariance):
         self.mean = mean
         self.covariance = covariance
 

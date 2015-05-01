@@ -71,7 +71,7 @@ class Measurement(object):
         #Searching for features with the same descriptor
         for feature_j in table_J:
             i = 0
-            distance_holder = [(0,0),(0,0)] # list with features from table K with smallest distance to current feature
+            distance_holder = np.array([[0,0],[0,0]]) # list with features from table K with smallest distance to current feature
             for feature_k in table_K:
                 desc_distance = self.calc_distance_two_descriptors(table_J[feature_j], table_K[feature_k])
                 # Searching for two features with smallest distance

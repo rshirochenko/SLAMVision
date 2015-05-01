@@ -32,11 +32,12 @@ class Motion_model(object):
     def translational_optimization(self, particles, Z_table_K):
         fc = self.fc
         for particle_id in particles:
+            #TODO: add eq. 5.4 here, as now it calculates in map frame coordinates. Need to calculate in camera frame coordinates
             particle_X_map = particles[particle_id].X_map
             i = 0
             for feature_id in particle_X_map:
                 if feature_id in Z_table_K:
-                    x = np.asarray(particle_X_map[feature_id].point) #feature x[x y z]
+                    x = np.asarray(particle_X_map[feature_id].mean) #feature x[x y z]
                     img_coord = np.asarray(Z_table_K[feature_id].point) # image coordinate [u v]
 
                     b11 = (fc*x[0]-img_coord[0]*x[2])

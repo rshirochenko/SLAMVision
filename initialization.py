@@ -31,9 +31,10 @@ class Initialization(object):
                 i += 1
             x = self.calc_feature(At, bt)
             jacobian = self.calc_jacobian_of_measurement(x)
-            jac_sum = jac_sum + jacobian*jacobian.T
-            covariance = inv(jac_sum)
-            X_map[point] = feature.Feature(x,x,covariance)
+            jac_sum = jac_sum + jacobian.T.dot(jacobian)
+            #TODO:check the covariance calculation (eq.5.44)
+            covariance = jac_sum
+            X_map[point] = feature.Feature(x,covariance)
         return X_map
 
     def get_img_coordinates_Z(self):
@@ -65,7 +66,7 @@ class Initialization(object):
     """Args: A, b matrix for the last measurements
     """
     def calc_feature(self, A, b):
-        x = inv(A.T*A)*A.T*b
+        x = inv(A.T.dot(A)).dot(A.T).dot(b)
         return x
 
     """Args: img_coord - 1 measurements SIFT image coordination [u,v]
@@ -94,10 +95,10 @@ class Initialization(object):
         n = Rci.item((2,0))*Rmi.item((2,0)) + Rci.item((2,1))*Rmi.item((2,1)) + Rci.item((2,2))*Rmi.item((2,2))
         o = Rci.item((2,0))*p.item(0) + Rci.item((2,1))*p.item(1) + Rci.item((2,2))*p.item(2)
 
-        A = np.matrix([[fc*a - img_coord[0]*l, fc*b - img_coord[0]*m, fc*c - img_coord[0]*n],
+        A = np.array([[fc*a - img_coord[0]*l, fc*b - img_coord[0]*m, fc*c - img_coord[0]*n],
                        [fc*e - img_coord[1]*l, fc*f - img_coord[1]*m, fc*g - img_coord[1]*n]])
 
-        b = np.matrix([[img_coord[0]*o - fc*d],
+        b = np.array([[img_coord[0]*o - fc*d],
                       [img_coord[1]*o - fc*h]])
         return A,b
 
@@ -124,7 +125,7 @@ class Initialization(object):
         jac_sum = 0
         for feature in self.features_list:
             jacobian = self.calc_jacobian_of_measurement(feature)
-            jac_sum = jac_sum + jacobian*jacobian.T
+            jac_sum = jac_sum + jacobian.T*jacobian
         covariance = std*inv(jac_sum)
         return covariance
 
@@ -145,6 +146,8 @@ class Initialization(object):
                               [g21,g22,g23]])
 
         return jacobian
+
+
 
 def main():
     print("Hello")
