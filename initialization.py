@@ -147,17 +147,3 @@ class Initialization(object):
 
         return jacobian
 
-
-
-def main():
-    print("Hello")
-
-    init = Initialization()
-
-    X_map =  init.X_map
-
-    for keys in X_map:
-        print X_map[keys].point
-
-
-if  __name__ =='__main__':main()

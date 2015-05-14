@@ -1,15 +1,15 @@
-import camera
 from initialization import *
 from motion_model import *
 import pose
 import initialization
-from math import cos, sin
+from math import cos, sin, sqrt, exp, pi
 
 
 class FastSLAM(object):
     fc = 0.1
     Rprop = []
     P = [] #TODO: proposal distribution (eq. 5.20)
+    M = 2 # total number of particles
 
     def __init__(self):
         print("MonoSLAM is initiated")
@@ -22,9 +22,8 @@ class FastSLAM(object):
         motion_model = Motion_model()
         X = dict()
         for particle in particles:
-            current_pose_predicted = motion_model.calcNextPose(previous_pose)
             for feature in features:
-                if(feature in X.keys):
+                if feature in X.keys:
                     mean = self.calcMean()
                     jacobian = self.calcJacobian()
                     covariance = self.calcCovariance()
@@ -59,6 +58,7 @@ class FastSLAM(object):
 
     def measurement_update(self, particle, Z_table_K):
         X_map = particle.X_map
+        weight_total = 1
         for j in X_map:
             if j in Z_table_K:
                 mean = X_map[j].mean
@@ -70,19 +70,31 @@ class FastSLAM(object):
                 Gs = self.calc_jacobian_Gs(X_c, particle.pose)
 
                 #EKF measurement update
-                mean_updated, covariance_updated = self.EKF_measurement_update(Gx,Gs,mean,covariance, measurement_current, measurement_predicted)
+                mean_updated, covariance_updated, Q = self.EKF_measurement_update(Gx,Gs,mean,covariance, measurement_current, measurement_predicted)
                 X_map[j].mean = mean_updated
                 X_map[j].covariance = covariance_updated
-        return measurement_predicted
+
+                #Particle Weighting
+                weight = 1.0/(sqrt(2*pi*np.linalg.det(Q)))*exp((-0.5)*float((measurement_current-measurement_predicted).T.dot(inv(Q)).dot(measurement_current-measurement_predicted)))
+                weight_total = weight_total * weight
+        return weight_total
+
+    def check_for_resampling(self,weight_sum):
+        try:
+            Meff = 1.0/weight_sum
+        except ZeroDivisionError:
+            return 1
+        if Meff < (self.M/2):
+            return 1
 
     def EKF_measurement_update(self, Gx, Gs, mean, covariance,measurement_current, measurement_predicted):
         P = np.identity(3) #TODO: change P here
         sigma = 0.1 #TODO:change sigma here
         Q = Gx.dot(P).dot(Gx.T) + Gx.dot(covariance).dot(Gx.T) + sigma*np.eye(2)
-        K = covariance.dot(Gx.T).dot(inv(Q))
+        K = covariance.dot(Gx.T).dot(np.linalg.det(Q))
         mean = mean + K.dot(measurement_current-measurement_predicted)
         covariance = (np.eye(3) - K.dot(Gx)).dot(covariance)
-        return mean, covariance
+        return mean, covariance, Q
 
 
     def convert_feature_to_camera_frame(self, pose, mean):
@@ -92,8 +104,10 @@ class FastSLAM(object):
         return X_c
 
     def measurement_model(self,Xc):
-        measurement = (self.fc/Xc[2])*Xc[:2]
-        return measurement
+        #TODO:debug for another features
+        if (Xc.shape == (3,1)):
+            measurement = (self.fc/float(Xc[2]))*(Xc[:2])
+            return measurement
 
     def calc_jacobian_Gs(self, feature, pose):
         x = float(feature[0])
@@ -150,26 +164,3 @@ class FastSLAM(object):
 
 
 
-def main():
-    print("Hello")
-    fastslam = FastSLAM()
-
-
-    #1.Initiate the camera and set camera parametrs
-    cam = camera.Camera()
-    cam.setCameraParametrs()
-
-    #2. Initiate the motion model
-    initialize = initialization.Initialization()
-    a, Z_table_K = initialize.get_img_coordinates_Z()
-
-    particles_dict = pose.makeParticlesDict(2)
-
-    motion_model = Motion_model()
-    motion_model.rotational_motion_model(particles_dict)
-    motion_model.translational_optimization(particles_dict,Z_table_K)
-
-    for particle_id in particles_dict:
-        print(fastslam.measurement_update(particles_dict[particle_id], Z_table_K))
-
-if  __name__ =='__main__':main()
