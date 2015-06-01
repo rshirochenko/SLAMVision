@@ -9,13 +9,13 @@ class FastSLAM(object):
     fc = 0.1
     Rprop = []
     P = [] #TODO: proposal distribution (eq. 5.20)
-    M = 2 # total number of particles
+    M = 2  # total number of particles
 
     def __init__(self):
         print("MonoSLAM is initiated")
 
     def time_update(self):
-        pose_current = pose.Pose([10,20,13],[1,1,2],[10,20,30])
+        pose_current = pose.Pose([10, 20, 13], [1, 1, 2], [10, 20, 30])
         return
 
     def update_stage(self, previous_pose, features, particles):
@@ -27,7 +27,7 @@ class FastSLAM(object):
                     mean = self.calcMean()
                     jacobian = self.calcJacobian()
                     covariance = self.calcCovariance()
-                    weight = 1 #default value
+                    weight = 1 # default value
                 else:
                     measurement_prediction = self.calcMeasurement()
                     jacobian = self.calcJacobian()
