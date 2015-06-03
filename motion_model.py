@@ -28,11 +28,11 @@ class Motion_model(object):
             # Update particles dictionary
             particles[particle_id].pose.euler_angles = euler_angles
             particles[particle_id].pose.angular_rates = angular_rates
-        return particles
 
     def translational_optimization(self, particles, Z_table_K):
         fc = self.fc
-        A = np.zeros((2, 3))
+        A = np.zeros((2, 1))
+        #print "Z_table_K", Z_table_K
         for particle_id in particles:
             # TODO: add eq. 5.4 here, as now it calculates in map frame coordinates. Need to calculate in camera frame coordinates
             particle_X_map = particles[particle_id].X_map
@@ -46,7 +46,6 @@ class Motion_model(object):
                     b21 = (fc*x[0]-img_coord[1]*x[2])
                     bx = np.array([b11,
                                    b21])
-
                     Ax = np.array([[(-1)*fc, 0, img_coord[0]],
                                    [0, (-1)*fc, img_coord[1]]])
                     if i == 0:
@@ -56,7 +55,8 @@ class Motion_model(object):
                         A = np.vstack((A, Ax))
                         b = np.vstack((b, bx))
                     i += 1
-            delta_p = inv(A.T.dot(A)).dot(A.T).dot(b)
+            print "A", type(A)
+            delta_p = inv(A.T.dot(A)).dot(A.T).dot
             # Update particles dictionary
             particles[particle_id].pose.position = delta_p
 

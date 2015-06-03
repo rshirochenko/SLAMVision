@@ -9,8 +9,8 @@ import time
 
 
 path = '/home/rshir/data/simple_sift/result.avi'  # Video path
-start_frame = 4
-number_of_init_frames = 7  # Number of frames for initialization stage
+start_frame = 6
+number_of_init_frames = 4  # Number of frames for initialization stage
 finish_of_init_frame = start_frame + number_of_init_frames
 
 
@@ -28,7 +28,7 @@ def open_video(path):
 def get_frame(cap, ret):
     ret, frame = cap.read()
     if ret:
-        gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         return ret, gray
     else:
         return ret, None
@@ -46,16 +46,16 @@ def main():
 
     fastslam = fastSLAM.FastSLAM()
     motion_model = m_m.Motion_model()
-    X_map = []
+    X_map = {}
 
     i = 0
     while ret:
         i += 1
         # Initialization stage
 
-        if start_frame < i <= finish_of_init_frame:
+        if start_frame <= i <= finish_of_init_frame:
             print "Initialization frame number:", i
-            if i == 5:
+            if i == start_frame:
                 print "Initialization"
                 K = []
                 meas = Measurement(K)
@@ -67,40 +67,33 @@ def main():
                 initialization.get_img_coordinates(table_J)
 
         if i == finish_of_init_frame:
-            X_map = initialization.build_X_map()
+            X_map = initialization.build_X_map(meas.table_K)
 
-        # Algorithm working 'X_map'
-        if i > number_of_init_frames:
+        # Algorithm working 'X_map'print "particles_dict", particles_dict
+        if i > finish_of_init_frame:
             # print "Algorithm working ",i
             table_J, current_points = meas.make_measurement(frame)
             particles_dict = pose.make_particles_dict(X_map)
-            #print "particles_dict", particles_dict
-            #print "X_map", type(X_map)
-            #print "Z measurements", current_points
-
-            for point in X_map:
-                print "X_map", point
-            for current_point in current_points:
-                print "current_points", current_point.point
-
-
 
             # Motion model update
-            particles_dict = motion_model.rotational_motion_model(particles_dict)
+            motion_model.rotational_motion_model(particles_dict)
             motion_model.translational_optimization(particles_dict, current_points)
-            """
+            #try:
+            #    motion_model.translational_optimization(particles_dict, current_points)
+            #except AttributeError:
+            #    print "A", A
+
             # Measurement model update(SLAM part)
             weight_sum = 0
             for particle_id in particles_dict:
-                print fastslam.measurement_update(particles_dict[particle_id], meas.table_K)
+                fastslam.measurement_update(particles_dict[particle_id], current_points)
                 weight_sum = weight_sum + particles_dict[particle_id].weight
+
 
             # Check for resampling and resampling if condition true
             if fastslam.check_for_resampling(weight_sum):
                 for particle_id in particles_dict:
                     particles_dict[particle_id].weight = 1.0/fastslam.M
-            """
-
         ret, frame = get_frame(cap, ret)
     else:
         show_res(meas.table_K)

@@ -44,10 +44,10 @@ class Measurement(object):
         return table_J, current_points
 
     def get_current_points(self):
-        current_points = []
+        current_points = {}
         for key in self.table_K:
             if self.table_K[key].last_observed == 0:
-                current_points.append(self.table_K[key])
+                current_points[key] = self.table_K[key]
         return current_points
 
     """ Get the SIFT point from one measurement
@@ -71,7 +71,6 @@ class Measurement(object):
         i = 0
         for p in point:
             table_K[i] = Measurement_K(p.pt, des[i], 0)
-            print 'point_K', p.pt
             i += 1
         return table_K
 

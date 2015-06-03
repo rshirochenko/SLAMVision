@@ -11,30 +11,6 @@ class FastSLAM(object):
     P = [] #TODO: proposal distribution (eq. 5.20)
     M = 2  # total number of particles
 
-    def __init__(self):
-        print("MonoSLAM is initiated")
-
-    def time_update(self):
-        pose_current = pose.Pose([10, 20, 13], [1, 1, 2], [10, 20, 30])
-        return
-
-    def update_stage(self, previous_pose, features, particles):
-        motion_model = Motion_model()
-        X = dict()
-        for particle in particles:
-            for feature in features:
-                if feature in X.keys:
-                    mean = self.calcMean()
-                    jacobian = self.calcJacobian()
-                    covariance = self.calcCovariance()
-                    weight = 1 # default value
-                else:
-                    measurement_prediction = self.calcMeasurement()
-                    jacobian = self.calcJacobian()
-                    measurement_covariance = self.calcCovariance()
-                    kalman_gain = self.calcKalmanGain()
-                    #update mean, update covariance,
-                    #calc the weight
 
     #TODO: optimize the feature calculation in the camera frame using eq.5.4
     def calc_particle_distribution(self, particle, Z_table_K):
@@ -48,12 +24,12 @@ class FastSLAM(object):
                 measurement_predicted = self.measurement_model(X_c)
                 Gx = self.calc_jacobian_Gx(X_c)
                 Gs = self.calc_jacobian_Gs(X_c, particle.pose)
-                Q = self.calc_Q(Gx,X_map[j].covariance)
+                Q = self.calc_Q(Gx, X_map[j].covariance)
                 #TODO: check the equetion 5.20 and 5.21. Found problem with dimensionality
                 covariance_sum = covariance_sum + inv(Gx.T.dot(inv(Q)).dot(Gx))
-                measurement_current = np.asarray(Z_table_K[j].point).reshape(2,1)
+                measurement_current = np.asarray(Z_table_K[j].point).reshape(2, 1)
                 mean_part = Gx.T.dot(inv(Q)).dot(measurement_current-measurement_predicted)
-        mean = covariance_sum.dot(mean_part) + particle.pose.position
+        mean = covariance_sum.dot(mean_part) + particle.pose.coordinates
         return mean
 
     def measurement_update(self, particle, Z_table_K):
@@ -65,12 +41,12 @@ class FastSLAM(object):
                 covariance = X_map[j].covariance
                 X_c = self.convert_feature_to_camera_frame(particle.pose, mean)
                 measurement_predicted = self.measurement_model(X_c)
-                measurement_current = np.asarray(Z_table_K[j].point).reshape(2,1)
+                measurement_current = np.asarray(Z_table_K[j].point).reshape(2, 1)
                 Gx = self.calc_jacobian_Gx(X_c)
                 Gs = self.calc_jacobian_Gs(X_c, particle.pose)
 
                 #EKF measurement update
-                mean_updated, covariance_updated, Q = self.EKF_measurement_update(Gx,Gs,mean,covariance, measurement_current, measurement_predicted)
+                mean_updated, covariance_updated, Q = self.EKF_measurement_update(Gx, Gs, mean, covariance, measurement_current, measurement_predicted)
                 X_map[j].mean = mean_updated
                 X_map[j].covariance = covariance_updated
 
@@ -87,7 +63,7 @@ class FastSLAM(object):
         if Meff < (self.M/2):
             return 1
 
-    def EKF_measurement_update(self, Gx, Gs, mean, covariance,measurement_current, measurement_predicted):
+    def EKF_measurement_update(self, Gx, Gs, mean, covariance, measurement_current, measurement_predicted):
         P = np.identity(3) #TODO: change P here
         sigma = 0.1 #TODO:change sigma here
         Q = Gx.dot(P).dot(Gx.T) + Gx.dot(covariance).dot(Gx.T) + sigma*np.eye(2)
@@ -97,13 +73,13 @@ class FastSLAM(object):
         return mean, covariance, Q
 
 
-    def convert_feature_to_camera_frame(self, pose, mean):
-        position = pose.position
-        Rcm = self.form_matrix_Rcm(pose)
-        X_c = Rcm.dot(mean) + position
+    def convert_feature_to_camera_frame(self, input_pose, mean):
+        coords = np.array([input_pose.coordinates]).T
+        Rcm = self.form_matrix_Rcm(input_pose)
+        X_c = Rcm.dot(mean) + coords
         return X_c
 
-    def measurement_model(self,Xc):
+    def measurement_model(self, Xc):
         #TODO:debug for another features
         if (Xc.shape == (3,1)):
             measurement = (self.fc/float(Xc[2]))*(Xc[:2])
@@ -113,19 +89,25 @@ class FastSLAM(object):
         x = float(feature[0])
         y = float(feature[1])
         z = float(feature[2])
-        px = float(pose.position[0])
-        py = float(pose.position[1])
-        pz = float(pose.position[2])
+        #x = feature[0]
+        #y = feature[1]
+        #z = feature[2]
+        px = pose.coordinates[0]
+        py = pose.coordinates[1]
+        pz = pose.coordinates[2]
         fc = self.fc
-        dg_by_dx = np.matrix([[fc/z, 0, ((-1)*fc*x)/(z*z)],
+        dg_by_dx = np.array([[fc/z, 0, ((-1)*fc*x)/(z*z)],
                               [0, fc/(z*z), ((-1)*fc*y)/(z*z)]])
-        dx_by_ds = np.matrix([[(-1)*y+px, z - pz, 0, 1, 0, 0],
+        dx_by_ds = np.array([[(-1)*y+px, z - pz, 0, 1, 0, 0],
                               [x - px, 0, -z +pz, 0, 1, 0],
                               [0, -x + px, y - py, 0, 0, 1]])
-        Gs = dg_by_dx*dx_by_ds
+        Gs = dg_by_dx.dot(dx_by_ds)
         return Gs
 
     def calc_jacobian_Gx(self, feature):
+        #x = float(feature[0])
+        #y = float(feature[1])
+        #z = float(feature[2])
         x = float(feature[0])
         y = float(feature[1])
         z = float(feature[2])
@@ -135,8 +117,8 @@ class FastSLAM(object):
         Gx = dg_by_dx
         return Gx
 
-    def form_matrix_Rcm(self, pose):
-        euler_angles = pose.euler_angles
+    def form_matrix_Rcm(self, input_pose):
+        euler_angles = input_pose.euler_angles
         psi = euler_angles[0]
         theta = euler_angles[1]
         phi = euler_angles[2]
