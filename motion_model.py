@@ -41,7 +41,6 @@ class Motion_model(object):
                 if feature_id in Z_table_K:
                     x = np.asarray(particle_X_map[feature_id].mean)  # feature x[x y z]
                     img_coord = np.asarray(Z_table_K[feature_id].point)  # image coordinate [u v]
-                    print "img_coord", img_coord
                     b11 = (fc*x[0]-img_coord[0]*x[2])
                     b21 = (fc*x[0]-img_coord[1]*x[2])
                     bx = np.array([b11,
@@ -55,8 +54,10 @@ class Motion_model(object):
                         A = np.vstack((A, Ax))
                         b = np.vstack((b, bx))
                     i += 1
-            print "A", type(A)
-            delta_p = inv(A.T.dot(A)).dot(A.T).dot
+            try:
+                delta_p = inv(A.T.dot(A)).dot(A.T).dot
+            except:
+                delta_p = [0, 0, 0]
             # Update particles dictionary
             particles[particle_id].pose.position = delta_p
 

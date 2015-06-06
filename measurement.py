@@ -107,7 +107,7 @@ class Measurement(object):
             #print "distance_holder", distance_holder
             if self.check_pixel_distance(distance_holder) and self.compare_with_threshold_mdist(distance_holder):
                 feature_number = distance_holder[0][0]
-                table_K[feature_number] = Measurement_K(table_K[feature_number].point, table_J[feature_j].descriptor, 0)
+                table_K[feature_number] = Measurement_K(table_J[feature_j].point, table_J[feature_j].descriptor, 0)
                 #TODO: implement logical_check function
             else:
                 table_K[next(reversed(table_K)) + 1] = Measurement_K(table_J[feature_j].point, table_J[feature_j].descriptor, 0)
