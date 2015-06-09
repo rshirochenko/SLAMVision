@@ -4,10 +4,11 @@ import initialization
 
 
 class Particle(object):
-    def __init__(self, weight, pose, X_map):
+    def __init__(self, weight, pose, X_map, X_map_dict):
         self.weight = weight
         self.pose = pose
         self.X_map = X_map
+        self.X_map_dict = X_map_dict
 
 
 class Pose(object):

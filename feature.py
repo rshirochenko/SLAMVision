@@ -5,10 +5,11 @@ from numpy.linalg import inv
 
 
 class Feature(object):
-    def __init__(self, mean, covariance, descriptor):
+    def __init__(self, mean, covariance, descriptor, debug_coord):
         self.mean = mean
         self.covariance = covariance
         self.descriptor = descriptor
+        self.debug_coord = debug_coord
 
 
 class XMapDictionary(object):
@@ -20,54 +21,78 @@ class XMapDictionary(object):
     def add_to_X_map_dict(self, feature):
         X_map_dict = self.X_map_dict
         for X_map_feature in X_map_dict:
-            if calc_distance_two_descriptors(X_map_feature.descriptor, feature.desctiptor) < 100:
+            if calc_distance_two_descriptors(X_map_feature.descriptor, feature.descriptor) < 100:
                 return
             else:
                 X_map_dict.append(feature)
 
 class FeaturesTemp(object):
-    measurement_dict = {}
+    measurement_dict = []
 
     def get_measurements(self, current_measurements, X_map_dict):
         measurement_dict = self.measurement_dict
         # Check the measurement_dict for emptiness
-        if not bool(measurement_dict):
+        if not measurement_dict:
             for key in current_measurements:
-                measurement_dict[key] = [current_measurements[key]]
+                if not self.check_Xmap(X_map_dict, current_measurements[key]):
+                    measurement_dict.append([current_measurements[key]])
             return
         # Add observed measurements to feature temp storage
         for key in current_measurements:
-            if self.check_Xmap(X_map_dict):
-                break
-            else:
+            if not self.check_Xmap(X_map_dict, current_measurements[key]):
                 self.check_add_to_measurement_dict(current_measurements[key])
-                self.check_add_to_Xmap(X_map_dict)
-        for meas in measurement_dict[3]:
-            print "measurements_dict", meas.point
+                print key
+        self.check_add_to_Xmap(X_map_dict)
 
-    def check_add_to_measurement_dict(self, current_measurements):
+    def init_get_measurements(self, current_measurements, X_map_dict):
         measurement_dict = self.measurement_dict
-        for j in measurement_dict:
-            if calc_distance_two_descriptors(current_measurements.descriptor,
-                                                      measurement_dict[j][-1].descriptor) < 100:
-                measurement_dict[j].append(current_measurements)
+        # Check the measurement_dict for emptiness
+        if not measurement_dict:
+            for key in current_measurements:
+                measurement_dict.append([current_measurements[key]])
+            return
 
-    def check_Xmap(self, X_map_dict):
+    def check_add_to_measurement_dict(self, current_measurement):
         measurement_dict = self.measurement_dict
+        added = False
+        for measurement in measurement_dict:
+            if calc_distance_two_descriptors(current_measurement.descriptor,
+                                                      measurement[-1].descriptor) < 100:
+                measurement.append(current_measurement)
+                added = True
+        if not added:
+            measurement_dict.append([current_measurement])
+
+    def check_Xmap(self, X_map_dict, current_measurement):
         for feature in X_map_dict:
-            for j in self.measurement_dict:
-                if calc_distance_two_descriptors(feature.descriptor,
-                                                      measurement_dict[j][-1].descriptor) < 100:
-                    return 1
+            if calc_distance_two_descriptors(feature.descriptor, current_measurement.descriptor) < 100:
+                return 1
+            else:
+                return 0
 
     def check_add_to_Xmap(self, X_map_dict):
         measurement_dict = self.measurement_dict
-        for j in self.measurement_dict:
-            if self.check_for_views_number(measurement_dict[j]):
-                mean, covariance = self.EKF_initialization(measurement_dict[j])
-                print "mean", mean, " covariance", covariance
-                X_map_dict.append(measurement_dict[j])
-                del measurement_dict[j]
+        counter = 0
+        counter2 = 0
+        for measurement in measurement_dict:
+            counter2 += 1
+            print "counter2", counter2
+        list_for_delete = []
+        for measurement in measurement_dict:
+            counter += 1
+            print "counter", counter
+            if self.check_for_views_number(measurement):
+                mean, covariance = self.EKF_initialization(measurement)
+                #print "mean", mean, " covariance", covariance
+                X_map_dict.append(Feature(mean, covariance, measurement[-1].descriptor, measurement[-1].point))
+                print "list_index", measurement_dict
+                list_for_delete.append(measurement)
+        #print "list_for_delete", list_for_delete
+        for n in list_for_delete:
+            try:
+                measurement_dict.remove(n)
+            except ValueError:
+                pass
 
     def check_for_views_number(self, measurement_dict_element):
         if len(measurement_dict_element) == constants.feature_time_for_init:
@@ -206,6 +231,6 @@ class FeaturesTemp(object):
 
 
 """ Calculate the distance between two 128-demensional sift features descriptors """
-def calc_distance_two_descriptors(self, d1, d2):
+def calc_distance_two_descriptors(d1, d2):
     dist = np.linalg.norm(d1 - d2)
     return dist

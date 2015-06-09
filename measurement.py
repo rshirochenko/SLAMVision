@@ -35,6 +35,8 @@ class Measurement(object):
         kpoint, des = self.calc_sift_points(img)
         table_K = self.create_table_K(kpoint, des)
         self.table_K = table_K
+        current_points = self.get_current_points()
+        return current_points
 
     def make_measurement(self, img):
         kpoint, des = self.calc_sift_points(img)

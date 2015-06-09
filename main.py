@@ -46,57 +46,63 @@ def main():
     cap, ret = open_video(path)
     ret, frame = get_frame(cap, ret)
 
-    fastslam = fastSLAM.FastSLAM()
-    motion_model = m_m.Motion_model()
     feature_dict = feature.FeaturesTemp()
-    X_map_init = feature.XMapDictionary()
+    X_map_init = feature.XMapDictionary().X_map_dict
     particles_dict = []
+    motion_model = m_m.Motion_model()
+    fastslam = fastSLAM.FastSLAM()
+    frame_number = 0
 
-    i = 0
     while ret:
-        i += 1
+        frame_number += 1
         # Initialization stage
-
-        if start_frame <= i <= finish_of_init_frame:
-            print "Initialization frame number:", i
-            if i == start_frame:
+        if start_frame <= frame_number <= finish_of_init_frame:
+            print "Initialization frame number:", frame_number
+            if frame_number == start_frame:
                 print "Initialization"
                 K = []
                 meas = Measurement(K)
-                meas.init_measurement(frame)
-                initialization = init.Initialization()
+                current_points = meas.init_measurement(frame)
+                #initialization = init.Initialization()
+                feature_dict.init_get_measurements(current_points, X_map_init)
             else:
                 print "Working process"
                 table_J, current_points = meas.make_measurement(frame)
-                initialization.get_img_coordinates(table_J)
                 feature_dict.get_measurements(current_points, X_map_init)
 
-        if i == finish_of_init_frame:
-            init_X_map_dict =
+        if frame_number == finish_of_init_frame:
+            particles_dict = {}
+            particle_weight = 1/constants.NUMBER_OF_PARTICLES
+            init_pose = pose.Pose(np.random.rand(3), np.random.rand(3), np.random.rand(3))
+            i = 0
             for i in range(1, constants.NUMBER_OF_PARTICLES):
-                X_map[i] = X_map_init
+                particles_dict[i] = pose.Particle(particle_weight, init_pose, X_map_init, X_map_init)
+
             #X_map = initialization.build_X_map(meas.table_K)
 
-        # Algorithm working 'X_map'print "particles_dict", particles_dict
-        if i > finish_of_init_frame:
+        # Algorithm working 'X_map' print "particles_dict", particles_dict
+        if frame_number > finish_of_init_frame:
             # print "Algorithm working ",i
             table_J, current_points = meas.make_measurement(frame)
-            feature_dict.get_measurements(current_points, meas.table_K)
+            i = 0
+            for i in particles_dict:
+                X_map_dict = particles_dict[i].X_map
+                feature_dict.get_measurements(current_points, X_map_dict)
+                for x in X_map_dict:
+                    for y in X_map_dict:
+                        try:
+                            if np.linalg.norm(x.descriptor - y.descriptor) < 100:
+                                print "I found ITTTT"
+                                print "X_map_distance between", X_map_dict.index(x), " and ", X_map_dict.index(y), "\n"
+                                print "X_map_distance points", x.debug_coord, " and ", y.debug_coord, "\n"
 
-
-
-            for i in range(1, constants.NUMBER_OF_PARTICLES):
-                particles_dict[i] = pose.make_particles_dict(X_map)
+                        except:
+                            pass
 
                 # Motion model update
-                motion_model.rotational_motion_model(particles_dict)
-                motion_model.translational_optimization(particles_dict, current_points)
-            #try:
-            #    motion_model.translational_optimization(particles_dict, current_points)
-            #except AttributeError:
-            #    print "A", A
+                motion_model.rotational_motion_model(particles_dict[i])
+                motion_model.translational_optimization(particles_dict[i], current_points)
 
-            # Measurement model update(SLAM part)
             """
             weight_sum = 0
             for particle_id in particles_dict:
@@ -115,30 +121,6 @@ def main():
         print "time", time.clock()
         print("Video`s end or camera is not working ")
 
-    """
-    #Initilization stage:
-    initialize = init.Initialization()
-    a, Z_table_K = initialize.get_img_coordinates_Z()
-    fastslam = fastSLAM.FastSLAM()
-    motion_model = m_m.Motion_model()
-    particles_dict = pose.makeParticlesDict(10)
-
-
-    #Motion model update
-    motion_model.rotational_motion_model(particles_dict)
-    motion_model.translational_optimization(particles_dict,Z_table_K)
-
-    #Mesurment model update(SLAM part)
-    weight_sum = 0
-    for particle_id in particles_dict:
-        print fastslam.measurement_update(particles_dict[particle_id], Z_table_K)
-        weight_sum = weight_sum + particles_dict[particle_id].weight
-
-    #Check for resampling and resampling if condition true
-    if fastslam.check_for_resampling(weight_sum):
-        for particle_id in particles_dict:
-            particles_dict[particle_id].weight = 1.0/fastslam.M
-    '"""
 
 if  __name__ =='__main__' :main()
 
