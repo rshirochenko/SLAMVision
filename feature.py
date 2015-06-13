@@ -2,14 +2,16 @@ import math
 import numpy as np
 import constants
 from numpy.linalg import inv
+from math import sin, cos
 
 
 class Feature(object):
-    def __init__(self, mean, covariance, descriptor, debug_coord):
+    def __init__(self, mean, covariance, descriptor, debug_coord, debug_key):
         self.mean = mean
         self.covariance = covariance
         self.descriptor = descriptor
         self.debug_coord = debug_coord
+        self.debug_key = debug_key
 
 
 class XMapDictionary(object):
@@ -26,134 +28,125 @@ class XMapDictionary(object):
             else:
                 X_map_dict.append(feature)
 
+
 class FeaturesTemp(object):
-    measurement_dict = []
+    measurement_dict = {}
+    times_observed = {}
 
-    def get_measurements(self, current_measurements, X_map_dict):
+    def get_measurements(self, current_measurements, X_map_dict, pose):
         measurement_dict = self.measurement_dict
+        cleared_measurements = {}
         # Check the measurement_dict for emptiness
-        if not measurement_dict:
+        if not bool(measurement_dict):
             for key in current_measurements:
-                if not self.check_Xmap(X_map_dict, current_measurements[key]):
-                    measurement_dict.append([current_measurements[key]])
+                if not self.check_Xmap(X_map_dict, current_measurements[key], key):
+                    measurement_dict[key] = [current_measurements[key]]
             return
-        # Add observed measurements to feature temp storage
+
         for key in current_measurements:
-            if not self.check_Xmap(X_map_dict, current_measurements[key]):
-                self.check_add_to_measurement_dict(current_measurements[key])
-                print key
-        self.check_add_to_Xmap(X_map_dict)
+            if not self.check_Xmap(X_map_dict, current_measurements[key], key):
+                cleared_measurements[key] = current_measurements[key]
 
-    def init_get_measurements(self, current_measurements, X_map_dict):
+        # Add observed measurements to feature temp storage
+        for key in cleared_measurements:
+            if key in measurement_dict:
+                measurement_dict[key].append(cleared_measurements[key])
+            else:
+                measurement_dict[key] = [cleared_measurements[key]]
+        self.check_add_to_Xmap(X_map_dict, cleared_measurements, pose)
+
+    def init_get_measurements(self, current_measurements, X_map_dict, pose):
         measurement_dict = self.measurement_dict
         # Check the measurement_dict for emptiness
-        if not measurement_dict:
+        if not bool(measurement_dict):
             for key in current_measurements:
-                measurement_dict.append([current_measurements[key]])
+                measurement_dict[key] = [current_measurements[key]]
+            self.check_add_to_Xmap(X_map_dict, current_measurements, pose)
             return
 
-    def check_add_to_measurement_dict(self, current_measurement):
+    def check_add_to_measurement_dict(self, key, current_measurement):
         measurement_dict = self.measurement_dict
-        added = False
-        for measurement in measurement_dict:
-            if calc_distance_two_descriptors(current_measurement.descriptor,
-                                                      measurement[-1].descriptor) < 100:
-                measurement.append(current_measurement)
-                added = True
-        if not added:
-            measurement_dict.append([current_measurement])
+        if key in measurement_dict:
+            measurement_dict[key].append(current_measurement)
 
-    def check_Xmap(self, X_map_dict, current_measurement):
+    def check_Xmap(self, X_map_dict, current_measurement, key):
+        result = False
         for feature in X_map_dict:
             if calc_distance_two_descriptors(feature.descriptor, current_measurement.descriptor) < 100:
-                return 1
+                feature.debug_key = key
+                return True
             else:
-                return 0
+                result = False
+        return result
 
-    def check_add_to_Xmap(self, X_map_dict):
+    def check_add_to_Xmap(self, X_map_dict, cleared_measurements, pose):
         measurement_dict = self.measurement_dict
-        counter = 0
-        counter2 = 0
-        for measurement in measurement_dict:
-            counter2 += 1
-            print "counter2", counter2
-        list_for_delete = []
-        for measurement in measurement_dict:
-            counter += 1
-            print "counter", counter
-            if self.check_for_views_number(measurement):
-                mean, covariance = self.EKF_initialization(measurement)
-                #print "mean", mean, " covariance", covariance
-                X_map_dict.append(Feature(mean, covariance, measurement[-1].descriptor, measurement[-1].point))
-                print "list_index", measurement_dict
-                list_for_delete.append(measurement)
-        #print "list_for_delete", list_for_delete
-        for n in list_for_delete:
-            try:
-                measurement_dict.remove(n)
-            except ValueError:
-                pass
+        times_observed = self.times_observed
+        list_for_deleting = []
 
-    def check_for_views_number(self, measurement_dict_element):
-        if len(measurement_dict_element) == constants.feature_time_for_init:
-            return 1
+        # Counter
+        for t in times_observed:
+            times_observed[t][0] += 1
+        for key in cleared_measurements:
+            if key not in times_observed:
+                times_observed[key] = [0, 1]
+            else:
+                times_observed[key][1] += 1
 
-    def EKF_initialization(self, measurement_dict_element):
-        x = 0
-        covariance = 0
+        # Add to X_map
+        for key in measurement_dict:
+            if times_observed[key][1] == constants.feature_time_for_init:
+                mean, covariance = self.EKF_initialization(measurement_dict[key], pose)
+                X_map_dict.append(Feature(mean, covariance,
+                                              measurement_dict[key][-1].descriptor, measurement_dict[key][-1].point, key))
+                list_for_deleting.append(key)
+                # Add to delete list if not renewed
+            if times_observed[key][0] == times_observed[key][1]:
+                list_for_deleting.append(key)
+
+        for d in list_for_deleting:
+            del times_observed[d]
+            del measurement_dict[d]
+
+    def EKF_initialization(self, measurement_dict_element, pose):
+        x = np.array([0.0, 0.0, 0.0]).reshape(3, 1)
+        covariance = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
         i = 1
         At = np.array([])
         bt = np.array([])
-        jac_sum = 0
+        jac_sum = np.zeros((2, 3))
+        jac_list = []
         for measurement in measurement_dict_element:
-            A, b = self.calc_matrix_Ab_parameters(measurement.point)
+            A, b = self.calc_matrix_Ab_parameters(measurement.point, pose)
             if i == 1:
                 At = A
                 bt = b
             else:
                 At = np.vstack((At, A))
                 bt = np.vstack((bt, b))
-            #print "i", i
-            #print "At", At
-            #print
-            #print "bt", bt
-            try:
-                x = self.calc_feature(At, bt)
-                jacobian = self.calc_jacobian_of_measurement(x)
-                jac_sum = jac_sum + jacobian.T.dot(jacobian)
-                # TODO:check the covariance calculation (eq.5.44)
-                covariance = jac_sum
-            except:
-                print "Oops!  That was no valid number.  Try again..."
-                break
+            x = self.calc_feature(At, bt)
+            jacobian = self.calc_jacobian_of_measurement(x)
+            jac_list.append(jacobian)
             i += 1
-        return x, covariance
+        print "jac_list", jac_list
+        covariance = np.zeros((3, 3))
+        return x.reshape(3, 1), covariance
 
-    """Args: A, b matrix for the last measurements
-    """
-
+    """Args: A, b matrix for the last measurements """
     def calc_feature(self, A, b):
         try:
             x = inv(A.T.dot(A)).dot(A.T).dot(b)
         except np.linalg.linalg.LinAlgError:
             print "Determinant is equal zero"
-            x = 0
+            x = np.array([0, 0, 0]).reshape(3, 1)
         return x
 
-
-    """Args: img_coord - 1 measurements SIFT image coordination [u,v]
-    """
-
-    def calc_matrix_Ab_parameters(self, img_coord):
-        Rci = np.array([[1, 2, 3],
-                        [4, 5, 6],
-                        [7, 8, 9]])
-        Rmi = np.array([[11, 12, 13],
-                        [14, 15, 16],
-                        [17, 18, 19]])
-        p = np.array([3, 3, 3])
+    """Args: img_coord - 1 measurements SIFT image coordination [u,v] """
+    def calc_matrix_Ab_parameters(self, img_coord, pose):
+        Rci = rotation_matrix_ci(pose)
+        Rmi = rotation_matrix_ci(pose)
+        p = pose.coordinates
         fc = constants.fc
-        # img_coord = [10,10] #(u,v)
 
         a = Rci.item((0, 0)) * Rmi.item((0, 0)) + Rci.item((0, 1)) * Rmi.item((0, 1)) + Rci.item((0, 2)) * Rmi.item(
             (0, 2))
@@ -184,9 +177,7 @@ class FeaturesTemp(object):
                       [img_coord[1] * o - fc * h]])
         return A, b
 
-    """Args: List[x[x y z]] - 3D feature coordinates list
-    """
-
+    """Args: List[x[x y z]] - 3D feature coordinates list """
     def calc_mean(self):
         x = 0
         y = 0
@@ -200,15 +191,13 @@ class FeaturesTemp(object):
         return mean
 
     """Args: x[x y z]] - 3D feature coordinate
-    Output: Covariance matrix 3x3
-    """
-
+    Output: Covariance matrix 3x3 """
     def calc_covariance(self):
         std = self.calc_std_square()
         jac_sum = 0
         for feature in self.features_list:
             jacobian = self.calc_jacobian_of_measurement(feature)
-            jac_sum = jac_sum + jacobian.T * jacobian
+            jac_sum = jac_sum + jacobian.T.dot(jacobian)
         covariance = std * inv(jac_sum)
         return covariance
 
@@ -229,8 +218,31 @@ class FeaturesTemp(object):
                              [g21, g22, g23]])
         return jacobian
 
-
 """ Calculate the distance between two 128-demensional sift features descriptors """
 def calc_distance_two_descriptors(d1, d2):
     dist = np.linalg.norm(d1 - d2)
     return dist
+
+""" Form the rotation matrix that convert camera to map frame(C/M)
+Args: particle`s euler_angles array [psi theta phi] """
+def rotation_matrix_mi(pose):
+    psi = pose.euler_angles[0]
+    theta = pose.euler_angles[1]
+    phi = pose.euler_angles[2]
+
+    Rcm = np.array([[cos(psi)*cos(theta), sin(psi)*cos(theta), cos(phi)*sin(theta)],
+                   [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*sin(phi)],
+                   [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*cos(phi)]])
+    return Rcm
+
+""" Form the rotation matrix that convert camera to map frame(C/M)
+Args: particle`s euler_angles array [psi theta phi] """
+def rotation_matrix_ci(pose):
+    psi = pose.euler_angles[0]
+    theta = pose.euler_angles[1]
+    phi = pose.euler_angles[2]
+
+    Rci = np.array([[cos(psi)*cos(theta), sin(psi)*cos(theta), cos(phi)*sin(theta)],
+                   [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*sin(phi)],
+                   [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*cos(phi)]])
+    return Rci

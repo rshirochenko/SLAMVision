@@ -4,6 +4,7 @@ import measurement
 import initialization
 from numpy.linalg import inv
 import constants
+from math import cos, sin, tan
 
 class Motion_model(object):
     fc = constants.fc
@@ -13,38 +14,41 @@ class Motion_model(object):
         print("Motion model is initiated")
 
     """Updates the angels and rates in the particles by using the motion model '"""
-    def rotational_motion_model(self, particle):
-        M = np.identity(3)  # TODO: here should be a matrix function (seem eq.4.13)
-        vnoise = np.random.rand(3)  # TODO: here should be zero meenas, gaussian random forcing terms (check eq. 4.15)
+    def rotational_motion_model(self, pose):
+        M = matrix_M(pose)  # TODO: here should be a matrix function (seem eq.4.13)
+        vnoise = np.random.sample((3, 1))  # TODO: here should be zero meenas, gaussian random forcing terms (check eq. 4.15)
 
         # Get the previous step pose angles and rates
-        pose = particle.pose
         euler_angles_prev_step = pose.euler_angles # vector of euler_angles [psi theta phi]
         angular_rates_prev_step = pose.angular_rates
 
         # Calculate the current step angles and rates
-        euler_angles = euler_angles_prev_step + np.dot(M,angular_rates_prev_step)*self.dt
+        euler_angles = euler_angles_prev_step + np.dot(M, angular_rates_prev_step)*self.dt
         angular_rates = angular_rates_prev_step + vnoise
 
         # Update particles dictionary
-        particle.pose.euler_angles = euler_angles
-        particle.pose.angular_rates = angular_rates
+        pose.euler_angles = euler_angles
+        pose.angular_rates = angular_rates
 
-    def translational_optimization(self, particle, Z_table_K):
+    def translational_optimization(self, particle, current_measurements):
         fc = self.fc
         A = np.zeros((2, 1))
         #print "Z_table_K", Z_table_K
         # TODO: add eq. 5.4 here, as now it calculates in map frame coordinates. Need to calculate in camera frame coordinates
-        particle_X_map = particle.X_map
+        particle_X_map = particle.X_map_dict
         i = 0
-        for feature_id in particle_X_map:
-            if feature_id in Z_table_K:
-                x = np.asarray(particle_X_map[feature_id].mean)  # feature x[x y z]
-                img_coord = np.asarray(Z_table_K[feature_id].point)  # image coordinate [u v]
-                b11 = (fc*x[0]-img_coord[0]*x[2])
-                b21 = (fc*x[0]-img_coord[1]*x[2])
-                bx = np.array([b11,
-                               b21])
+        for feature in particle_X_map:
+            key = feature.debug_key
+            if key in current_measurements.keys():
+                x = np.asarray(feature.mean)  # feature x[x y z]
+                Rcm = rotation_matrix_CM(particle.pose)
+                x_cm = Rcm.dot(x)  # feature in map frame X_c/m [x y z]
+                img_coord = np.asarray(current_measurements[key].point)  # image coordinate [u v]
+                b11 = (fc*x_cm[0]-img_coord[0]*x_cm[2])
+                b21 = (fc*x_cm[0]-img_coord[1]*x_cm[2])
+                bx = np.array([b11, b21])
+                if b11 == 0:
+                    bx = np.zeros((2, 1))
                 Ax = np.array([[(-1)*fc, 0, img_coord[0]],
                                [0, (-1)*fc, img_coord[1]]])
                 if i == 0:
@@ -55,10 +59,37 @@ class Motion_model(object):
                     b = np.vstack((b, bx))
                 i += 1
         try:
-            delta_p = inv(A.T.dot(A)).dot(A.T).dot
+            delta_p = inv(A.T.dot(A)).dot(A.T).dot(b)
         except:
-            delta_p = [0, 0, 0]
-        # Update particles dictionary
-        particle.pose.position = delta_p
+            delta_p = np.zeros((3,1))
+        # Update particles
+        previous_position = particle.pose.coordinates
+        particle.pose.coordinates = delta_p + previous_position
+        print "partttic", particle.pose.coordinates
+
+""" Form the rotation matrix that convert camera to map frame(C/M)
+Args: particle`s euler_angles array [psi theta phi] """
+def rotation_matrix_CM(pose):
+    psi = pose.euler_angles[0]
+    theta = pose.euler_angles[1]
+    phi = pose.euler_angles[2]
+    Rcm = np.array([[cos(psi)*cos(theta), sin(psi)*cos(theta), cos(phi)*sin(theta)],
+                   [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*sin(phi)],
+                   [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*cos(phi)]])
+    return Rcm
+
+def matrix_M(pose):
+    psi = pose.euler_angles[0]
+    theta = pose.euler_angles[1]
+    phi = pose.euler_angles[2]
+
+    M = np.array([[1, sin(psi)*tan(theta), cos(psi)*tan(theta)],
+                  [0, cos(psi), (-1)*sin(psi)],
+                  [0, sin(psi)/cos(theta), cos(psi)*cos(theta)]])
+    return M
+
+
+
+
 
 

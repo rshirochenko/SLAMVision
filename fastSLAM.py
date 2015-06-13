@@ -3,45 +3,55 @@ from motion_model import *
 import pose
 import initialization
 from math import cos, sin, sqrt, exp, pi
+import constants
 
 
 class FastSLAM(object):
-    fc = 0.1
+    fc = constants.fc
     Rprop = []
     P = [] #TODO: proposal distribution (eq. 5.20)
-    M = 2  # total number of particles
-
+    M = constants.NUMBER_OF_PARTICLES  # total number of particles
 
     #TODO: optimize the feature calculation in the camera frame using eq.5.4
-    def calc_particle_distribution(self, particle, Z_table_K):
-        X_map = particle.X_map
+    """ FastSLAM 2.0 Proposal distribution for st
+    Time update for st
+    Args: particle - current particle from particle_filter(contains X_map_previous_step
+            and predicted st)
+         current_measurements -  measurements for the current time step
+    """
+    def calc_position_proposal_distribution(self, particle, current_measurements):
+        X_map = particle.X_map_dict
         covariance_sum = 0
         mean_part = 0
-        for j in X_map:
-            if j in Z_table_K:
-                mean = X_map[j].mean
+        for x in X_map:
+            if x.debug_key in current_measurements:
+                mean = x.mean
                 X_c = self.convert_feature_to_camera_frame(particle.pose, mean)
                 measurement_predicted = self.measurement_model(X_c)
                 Gx = self.calc_jacobian_Gx(X_c)
                 Gs = self.calc_jacobian_Gs(X_c, particle.pose)
-                Q = self.calc_Q(Gx, X_map[j].covariance)
-                #TODO: check the equetion 5.20 and 5.21. Found problem with dimensionality
-                covariance_sum = covariance_sum + inv(Gx.T.dot(inv(Q)).dot(Gx))
-                measurement_current = np.asarray(Z_table_K[j].point).reshape(2, 1)
-                mean_part = Gx.T.dot(inv(Q)).dot(measurement_current-measurement_predicted)
-        mean = covariance_sum.dot(mean_part) + particle.pose.coordinates
-        return mean
+                Q = self.calc_Q(Gx, x.covariance)
+                #TODO: check the equation 5.20 and 5.21. Found problem with dimensionality
+                try:
+                    covariance_sum += Gx.T.dot(inv(Q)).dot(Gx)
+                    measurement_current = np.asarray(current_measurements[x.debug_key].point).reshape(2, 1)
+                    mean_part += Gx.T.dot(inv(Q)).dot(measurement_current-measurement_predicted)
+                except:
+                    print "covariance_sum error"
+                    pass
+        #mean_st = covariance_sum.dot(mean_part) + particle.pose.coordinates
+        mean_st = np.random.sample((3, 1))
 
-    def measurement_update(self, particle, Z_table_K):
-        X_map = particle.X_map
+    def measurement_update(self, particle, current_measurements):
+        X_map = particle.X_map_dict
         weight_total = 1
         for j in X_map:
-            if j in Z_table_K:
+            if j in current_measurements:
                 mean = X_map[j].mean
                 covariance = X_map[j].covariance
                 X_c = self.convert_feature_to_camera_frame(particle.pose, mean)
                 measurement_predicted = self.measurement_model(X_c)
-                measurement_current = np.asarray(Z_table_K[j].point).reshape(2, 1)
+                measurement_current = np.asarray(current_measurements[j].point).reshape(2, 1)
                 Gx = self.calc_jacobian_Gx(X_c)
                 Gs = self.calc_jacobian_Gs(X_c, particle.pose)
 
@@ -55,7 +65,7 @@ class FastSLAM(object):
                 weight_total = weight_total * weight
         return weight_total
 
-    def check_for_resampling(self,weight_sum):
+    def check_for_resampling(self, weight_sum):
         try:
             Meff = 1.0/weight_sum
         except ZeroDivisionError:
@@ -74,7 +84,7 @@ class FastSLAM(object):
 
 
     def convert_feature_to_camera_frame(self, input_pose, mean):
-        coords = np.array([input_pose.coordinates]).T
+        coords = input_pose.coordinates
         Rcm = self.form_matrix_Rcm(input_pose)
         X_c = Rcm.dot(mean) + coords
         return X_c
@@ -108,6 +118,7 @@ class FastSLAM(object):
         #x = float(feature[0])
         #y = float(feature[1])
         #z = float(feature[2])
+        print "feature", feature
         x = float(feature[0])
         y = float(feature[1])
         z = float(feature[2])
