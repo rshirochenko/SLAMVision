@@ -31,6 +31,7 @@ class Measurement(object):
         self.table_K = table_K  # SIFT data structure
         self.sift = cv2.SIFT(self.n)
 
+    """ The t=0 initial stage getting the Z(SIFT) measurements"""
     def init_measurement(self, img):
         kpoint, des = self.calc_sift_points(img)
         table_K = self.create_table_K(kpoint, des)
@@ -38,6 +39,7 @@ class Measurement(object):
         current_points = self.get_current_points()
         return current_points
 
+    """ Estimate current frame SIFT measurements and update the table K"""
     def make_measurement(self, img):
         kpoint, des = self.calc_sift_points(img)
         table_J = self.create_table_J(kpoint, des)
@@ -45,6 +47,7 @@ class Measurement(object):
         current_points = self.get_current_points()
         return table_J, current_points
 
+    """ Return the last observed measurements from table K"""
     def get_current_points(self):
         current_points = {}
         for key in self.table_K:
@@ -155,35 +158,17 @@ def change_keys(d):
     else:
         return d
 
-
+"""Print the table K contains"""
 def show_res(tab):
     for key in tab:
         print key, ' point', tab[key].point, ' last_observed', tab[key].last_observed
 
-
+"""Print the table J contains"""
 def show_table_J(tab):
     for key in tab:
         print key, ' point', tab[key].point
 
-
+""" Simple swap function"""
 def swap(s1, s2):
     return s2, s1
-
-"""
-def main():
-    K = []
-    meas = Measurement(K)
-    meas.init_measurement(gray1)
-    show_res(meas.table_K)
-
-    print "Second measurement"
-    meas.make_measurement(gray2)
-    show_res(meas.table_K)
-
-    print "Third measurement"
-    meas.make_measurement(gray3)
-    show_res(meas.table_K)
-
-if  __name__ =='__main__':main()
-"""
 

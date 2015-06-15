@@ -1,7 +1,5 @@
-import initialization
 import motion_model as m_m
 import pose
-import initialization as init
 from measurement import *
 import fastSLAM
 import cv2
@@ -78,51 +76,34 @@ def main():
         if frame_number == finish_of_init_frame:
             particles_dict = {}
             particle_weight = 1 / float(constants.NUMBER_OF_PARTICLES)
-            print "number_of_particles", constants.NUMBER_OF_PARTICLES
             for i in range(0, constants.NUMBER_OF_PARTICLES):
                 particles_dict[i] = pose.Particle(particle_weight, init_pose, copy.deepcopy(X_map_init),
                                                   copy.deepcopy(X_map_init))
                 feature_cache_particle[i] = feature.FeaturesTemp()
-                print "measurument_dict", feature_cache.measurement_dict
-                print "times_observed", feature_cache.times_observed
                 feature_cache_particle[i].measurement_dict = copy.deepcopy(feature_cache.measurement_dict)
                 feature_cache_particle[i].times_observed = copy.deepcopy(feature_cache.times_observed)
 
-        # Algorithm working 'X_map' print "particles_dict", particles_dict
+        # Algorithm working maing  stages
         if frame_number > finish_of_init_frame:
-            # print "Algorithm working ",i
             table_J, current_points = meas.make_measurement(frame)
             for i in particles_dict:
                 feature_cache_particle[i].get_measurements(current_points, particles_dict[i].X_map_dict, particles_dict[i].pose)
-                """
-                for x in X_map_dict:
-                    for y in X_map_dict:
-                        try:
-                            if np.linalg.norm(x.descriptor - y.descriptor) < 100 and x != y:
-                                print "frame_number", frame_number
-                                print "I found ITTTT"
-                                print "X_map_distance between", X_map_dict.index(x), " and ", X_map_dict.index(y), "\n"
-                                print "X_map_distance points", x.debug_coord, " and ", y.debug_coord, "\n"
-                        except:
-                            pass
-                """
+
                 # Motion model update
                 motion_model.rotational_motion_model(particles_dict[i].pose)
                 motion_model.translational_optimization(particles_dict[i], current_points)
 
                 # ***Rao-Blackwellized particle filter update***
+                # Time update stage
+                fastslam.calc_position_proposal_distribution(particles_dict[i], current_points)
+                # Measurement update stage and particles weighting
                 weight_sum = 0
-                for particle_id in particles_dict:
-                    fastslam.calc_position_proposal_distribution(particles_dict[particle_id], current_points)
-                    weight = fastslam.measurement_update(particles_dict[particle_id], current_points)
-                    weight_sum = weight_sum + weight
+                weight = fastslam.measurement_update(particles_dict[i], current_points)
+                weight_sum = weight_sum + weight
 
                 # Check for resampling and resampling if condition true
                 if fastslam.check_for_resampling(weight_sum):
-                    for particle_id in particles_dict:
-                        print "Here"
-                        particles_dict[particle_id].weight = 1.0/fastslam.M
-
+                    particles_dict[i].weight = 1.0/constants.NUMBER_OF_PARTICLES
         ret, frame = get_frame(cap, ret)
     else:
         # show_res(meas.table_K)

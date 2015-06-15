@@ -15,8 +15,8 @@ class Motion_model(object):
 
     """Updates the angels and rates in the particles by using the motion model '"""
     def rotational_motion_model(self, pose):
-        M = matrix_M(pose)  # TODO: here should be a matrix function (seem eq.4.13)
-        vnoise = np.random.sample((3, 1))  # TODO: here should be zero meenas, gaussian random forcing terms (check eq. 4.15)
+        M = matrix_M(pose)
+        vnoise = constants.vnoise  # (check eq. 4.15)
 
         # Get the previous step pose angles and rates
         euler_angles_prev_step = pose.euler_angles # vector of euler_angles [psi theta phi]
@@ -30,11 +30,10 @@ class Motion_model(object):
         pose.euler_angles = euler_angles
         pose.angular_rates = angular_rates
 
+    """ Estimate translational offset """
     def translational_optimization(self, particle, current_measurements):
         fc = self.fc
         A = np.zeros((2, 1))
-        #print "Z_table_K", Z_table_K
-        # TODO: add eq. 5.4 here, as now it calculates in map frame coordinates. Need to calculate in camera frame coordinates
         particle_X_map = particle.X_map_dict
         i = 0
         for feature in particle_X_map:
@@ -61,11 +60,10 @@ class Motion_model(object):
         try:
             delta_p = inv(A.T.dot(A)).dot(A.T).dot(b)
         except:
-            delta_p = np.zeros((3,1))
+            delta_p = np.zeros((3, 1))
         # Update particles
         previous_position = particle.pose.coordinates
         particle.pose.coordinates = delta_p + previous_position
-        print "partttic", particle.pose.coordinates
 
 """ Form the rotation matrix that convert camera to map frame(C/M)
 Args: particle`s euler_angles array [psi theta phi] """

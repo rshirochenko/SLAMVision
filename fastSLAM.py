@@ -1,7 +1,5 @@
-from initialization import *
 from motion_model import *
 import pose
-import initialization
 from math import cos, sin, sqrt, exp, pi
 import constants
 
@@ -9,7 +7,6 @@ import constants
 class FastSLAM(object):
     fc = constants.fc
     Rprop = []
-    P = [] #TODO: proposal distribution (eq. 5.20)
     M = constants.NUMBER_OF_PARTICLES  # total number of particles
 
     #TODO: optimize the feature calculation in the camera frame using eq.5.4
@@ -31,40 +28,54 @@ class FastSLAM(object):
                 Gx = self.calc_jacobian_Gx(X_c)
                 Gs = self.calc_jacobian_Gs(X_c, particle.pose)
                 Q = self.calc_Q(Gx, x.covariance)
-                #TODO: check the equation 5.20 and 5.21. Found problem with dimensionality
                 try:
-                    covariance_sum += Gx.T.dot(inv(Q)).dot(Gx)
+                    covariance_sum += Gs.T.dot(inv(Q)).dot(Gs) + inv(constants.P)
                     measurement_current = np.asarray(current_measurements[x.debug_key].point).reshape(2, 1)
-                    mean_part += Gx.T.dot(inv(Q)).dot(measurement_current-measurement_predicted)
+                    mean_part += Gs.T.dot(inv(Q)).dot(measurement_current-measurement_predicted)
                 except:
-                    print "covariance_sum error"
-                    pass
-        #mean_st = covariance_sum.dot(mean_part) + particle.pose.coordinates
-        mean_st = np.random.sample((3, 1))
+                    return 1
+        try:
+            covariance_sum = inv(covariance_sum)
+            st = np.vstack((particle.pose.euler_angles, particle.pose.coordinates))
+            mean_st = covariance_sum.dot(mean_part) + st
+            particle.pose.euler_angles = mean_st[0:3]
+            particle.pose.coordinates = mean_st[3:6]
+        except np.linalg.linalg.LinAlgError:
+            pass
 
+
+    def calc_position_proposal_distribution_fastslam1(self, particle, current_measurements):
+        particle.pose.coordinates = particle.pose.coordinates + constants.vnoise_process
+
+    """ Measurement update and particle weighting stage"""
     def measurement_update(self, particle, current_measurements):
         X_map = particle.X_map_dict
         weight_total = 1
-        for j in X_map:
-            if j in current_measurements:
-                mean = X_map[j].mean
-                covariance = X_map[j].covariance
+        for x in X_map:
+            if x.debug_key in current_measurements:
+                print "I am here"
+                mean = x.mean
+                covariance = x.covariance
                 X_c = self.convert_feature_to_camera_frame(particle.pose, mean)
                 measurement_predicted = self.measurement_model(X_c)
-                measurement_current = np.asarray(current_measurements[j].point).reshape(2, 1)
+                measurement_current = np.asarray(current_measurements[x.debug_key].point).reshape(2, 1)
                 Gx = self.calc_jacobian_Gx(X_c)
                 Gs = self.calc_jacobian_Gs(X_c, particle.pose)
 
                 #EKF measurement update
                 mean_updated, covariance_updated, Q = self.EKF_measurement_update(Gx, Gs, mean, covariance, measurement_current, measurement_predicted)
-                X_map[j].mean = mean_updated
-                X_map[j].covariance = covariance_updated
+                x.mean = mean_updated
+                x.covariance = covariance_updated
 
                 #Particle Weighting
-                weight = 1.0/(sqrt(2*pi*np.linalg.det(Q)))*exp((-0.5)*float((measurement_current-measurement_predicted).T.dot(inv(Q)).dot(measurement_current-measurement_predicted)))
+                try:
+                    weight = 1.0/(sqrt(2*pi*np.linalg.det(Q)))*exp((-0.5)*float((measurement_current-measurement_predicted).T.dot(inv(Q)).dot(measurement_current-measurement_predicted)))
+                except ValueError:
+                    weight = 1/constants.NUMBER_OF_PARTICLES
                 weight_total = weight_total * weight
         return weight_total
 
+    """ Particle weight resampling stage"""
     def check_for_resampling(self, weight_sum):
         try:
             Meff = 1.0/weight_sum
@@ -74,9 +85,9 @@ class FastSLAM(object):
             return 1
 
     def EKF_measurement_update(self, Gx, Gs, mean, covariance, measurement_current, measurement_predicted):
-        P = np.identity(3) #TODO: change P here
-        sigma = 0.1 #TODO:change sigma here
-        Q = Gx.dot(P).dot(Gx.T) + Gx.dot(covariance).dot(Gx.T) + sigma*np.eye(2)
+        sigma = constants.sigma_meas
+        P = constants.P
+        Q = Gs.dot(P).dot(Gs.T) + Gx.dot(covariance).dot(Gx.T) + sigma*np.eye(2)
         K = covariance.dot(Gx.T).dot(np.linalg.det(Q))
         mean = mean + K.dot(measurement_current-measurement_predicted)
         covariance = (np.eye(3) - K.dot(Gx)).dot(covariance)
@@ -99,12 +110,9 @@ class FastSLAM(object):
         x = float(feature[0])
         y = float(feature[1])
         z = float(feature[2])
-        #x = feature[0]
-        #y = feature[1]
-        #z = feature[2]
-        px = pose.coordinates[0]
-        py = pose.coordinates[1]
-        pz = pose.coordinates[2]
+        px = float(pose.coordinates[0])
+        py = float(pose.coordinates[1])
+        pz = float(pose.coordinates[2])
         fc = self.fc
         dg_by_dx = np.array([[fc/z, 0, ((-1)*fc*x)/(z*z)],
                               [0, fc/(z*z), ((-1)*fc*y)/(z*z)]])
@@ -115,10 +123,6 @@ class FastSLAM(object):
         return Gs
 
     def calc_jacobian_Gx(self, feature):
-        #x = float(feature[0])
-        #y = float(feature[1])
-        #z = float(feature[2])
-        print "feature", feature
         x = float(feature[0])
         y = float(feature[1])
         z = float(feature[2])

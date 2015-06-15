@@ -95,6 +95,11 @@ class FeaturesTemp(object):
 
         # Add to X_map
         for key in measurement_dict:
+            try:
+                times_observed[key]
+            except KeyError:
+                list_for_deleting.append(key)
+                continue
             if times_observed[key][1] == constants.feature_time_for_init:
                 mean, covariance = self.EKF_initialization(measurement_dict[key], pose)
                 X_map_dict.append(Feature(mean, covariance,
@@ -105,16 +110,18 @@ class FeaturesTemp(object):
                 list_for_deleting.append(key)
 
         for d in list_for_deleting:
-            del times_observed[d]
-            del measurement_dict[d]
+            try:
+                del times_observed[d]
+                del measurement_dict[d]
+            except KeyError:
+                pass
 
     def EKF_initialization(self, measurement_dict_element, pose):
         x = np.array([0.0, 0.0, 0.0]).reshape(3, 1)
-        covariance = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
+        covariance = np.zeros((3, 3))
         i = 1
         At = np.array([])
         bt = np.array([])
-        jac_sum = np.zeros((2, 3))
         jac_list = []
         for measurement in measurement_dict_element:
             A, b = self.calc_matrix_Ab_parameters(measurement.point, pose)
@@ -124,12 +131,17 @@ class FeaturesTemp(object):
             else:
                 At = np.vstack((At, A))
                 bt = np.vstack((bt, b))
-            x = self.calc_feature(At, bt)
-            jacobian = self.calc_jacobian_of_measurement(x)
+            x = self.calc_feature(A, b)
+            try:
+                jacobian = self.calc_jacobian_of_measurement(x)
+            except ZeroDivisionError:
+                del measurement
+                continue
             jac_list.append(jacobian)
             i += 1
-        print "jac_list", jac_list
-        covariance = np.zeros((3, 3))
+        for g in jac_list:
+            covariance += g.T.dot(g)
+        covariance = np.square(constants.sigma_meas)*covariance
         return x.reshape(3, 1), covariance
 
     """Args: A, b matrix for the last measurements """
@@ -143,8 +155,8 @@ class FeaturesTemp(object):
 
     """Args: img_coord - 1 measurements SIFT image coordination [u,v] """
     def calc_matrix_Ab_parameters(self, img_coord, pose):
-        Rci = rotation_matrix_ci(pose)
-        Rmi = rotation_matrix_ci(pose)
+        Rci = rotation_matrix(pose)
+        Rmi = rotation_matrix(pose)
         p = pose.coordinates
         fc = constants.fc
 
@@ -246,3 +258,25 @@ def rotation_matrix_ci(pose):
                    [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*sin(phi)],
                    [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*cos(phi)]])
     return Rci
+
+""" Form the rotation matrix that convert camera to map frame(C/M)
+Args: particle`s euler_angles array [psi theta phi] """
+def rotation_matrix(pose):
+    psi = pose.euler_angles[0]
+    theta = pose.euler_angles[1]
+    phi = pose.euler_angles[2]
+
+    r11 = cos(theta)*cos(phi)
+    r21 = cos(theta)*sin(phi)
+    r31 = (-1)*sin(theta)
+    r12 = sin(psi)*sin(theta)*cos(phi) - cos(psi)*sin(phi)
+    r22 = sin(psi)*sin(theta)*sin(phi) + cos(psi)*cos(phi)
+    r32 = sin(phi)*cos(theta)
+    r13 = cos(phi)*cos(theta)*cos(phi) + sin(psi)*sin(phi)
+    r23 = sin(psi)*cos(theta)
+    r33 = cos(psi)*cos(theta)
+
+    R = np.array([[r11, r12, r13],
+                   [r21, r22, r23],
+                   [r31, r32, r33]])
+    return R
