@@ -28,6 +28,6 @@ def make_particles_dict(X_map):
         particles[i] = Particle(weight, new_pose, X_map)
     return particles
 
-1
+
 
 

@@ -40,6 +40,8 @@ class FastSLAM(object):
             mean_st = covariance_sum.dot(mean_part) + st
             particle.pose.euler_angles = mean_st[0:3]
             particle.pose.coordinates = mean_st[3:6]
+            print "Euler angles", particle.pose.euler_angles
+            print "Coordinates", particle.pose.coordinates
         except np.linalg.linalg.LinAlgError:
             pass
 
@@ -53,7 +55,6 @@ class FastSLAM(object):
         weight_total = 1
         for x in X_map:
             if x.debug_key in current_measurements:
-                print "I am here"
                 mean = x.mean
                 covariance = x.covariance
                 X_c = self.convert_feature_to_camera_frame(particle.pose, mean)
@@ -137,6 +138,7 @@ class FastSLAM(object):
         psi = euler_angles[0]
         theta = euler_angles[1]
         phi = euler_angles[2]
+
         r11 = cos(psi)*sin(theta)
         r21 = sin(psi)*cos(theta)
         r31 = (-1)*sin(theta)
@@ -158,6 +160,95 @@ class FastSLAM(object):
     def calc_Q(self, Gx, covariance):
         Q = Gx.dot(covariance).dot(Gx.T)
         return Q
+
+    def calc_jacobian_Gx(self, input_pose, feature):
+        fc = self.fc
+
+        x = feature.mean[0]
+        y = feature.mean[1]
+        z = feature.mean[2]
+
+        px = input_pose.coordinates[0]
+        py = input_pose.coordinates[1]
+        pz = input_pose.coordinates[2]
+
+        R = self.form_matrix_Rcm(input_pose)  # translation matrix
+
+        xc = R[0][0]*x + R[0][1]*y + R[0][2]*z + px
+        yc = R[1][0]*x + R[1][1]*y + R[1][2]*z + py
+        zc = R[2][0]*x + R[2][1]*y + R[2][2]*z + pz
+
+        Gx = np.zeros((2, 3))
+        Gx[0][0] = R[0][0]*zc - R[2][0]*xc
+        Gx[0][1] = R[0][1]*zc - R[2][1]*xc
+        Gx[0][2] = R[0][2]*zc - R[2][2]*xc
+        Gx[1][0] = R[1][0]*zc - R[2][0]*yc
+        Gx[1][1] = R[1][1]*zc - R[2][1]*yc
+        Gx[1][2] = R[1][2]*zc - R[2][2]*yc
+        Gx *= (fc/zc**2)
+
+        return Gx
+
+    def calc_jacobian_Gs(self, input_pose, feature):
+        fc = self.fc
+
+        x = feature.mean[0]
+        y = feature.mean[1]
+        z = feature.mean[2]
+
+        euler_angles = input_pose.euler_angles
+        psi = euler_angles[0]
+        theta = euler_angles[1]
+        phi = euler_angles[2]
+
+        px = input_pose.coordinates[0]
+        py = input_pose.coordinates[1]
+        pz = input_pose.coordinates[2]
+
+        R = self.form_matrix_Rcm(input_pose)  # translation matrix
+
+        xc = R[0][0]*x + R[0][1]*y + R[0][2]*z + px
+        yc = R[1][0]*x + R[1][1]*y + R[1][2]*z + py
+        zc = R[2][0]*x + R[2][1]*y + R[2][2]*z + pz
+
+        dxc_by_dpsi = (-1)*sin(psi)*cos(theta)*x + cos(psi)*cos(theta)*y
+        dyc_by_dpsi = (cos(psi)*cos(phi)-sin(psi)*sin(theta)*sin(phi))*x + \
+                      (cos(psi)*sin(theta)*cos(phi) - sin(psi)*cos(phi)*y)
+        dzc_by_dpsi = (cos(psi)*sin(phi) - sin(psi)*cos(theta)*cos(phi))*x +\
+                      (cos(psi)*sin(theta)*sin(phi) + sin(psi)*sin(phi))*y
+        dxc_by_dtheta = (-1)*cos(psi)*sin(theta)*x - sin(psi)*sin(theta)*y - cos(theta)*z
+        dyc_by_dtheta = cos(psi)*cos(theta)*sin(phi)*x + sin(psi)*cos(theta)*sin(phi)*y - sin(theta)*sin(phi)*z
+        dzc_by_dtheta = (-1)*cos(psi)*sin(theta)*cos(phi) - sin(psi)*cos(theta)*cos(phi)*y + sin(theta)*cos(phi)*z
+        dxc_by_dphi = 0
+        dyc_by_dphi = sin(psi)*sin(phi)*x - cos(psi)*sin(phi)*y + cos(theta)*cos(phi)*z
+        dzc_by_dphi = sin(psi)*cos(phi)*x - (sin(psi)*sin(theta)*sin(phi) + cos(psi)*cos(phi))*y - cos(theta)*sin(phi)*z
+
+        Gs = np.zeros((2, 9))
+        Gs[0][0] = (fc/zc**2) * (dxc_by_dpsi*zc - dzc_by_dpsi*xc)
+        Gs[0][1] = (fc/zc**2) * (dxc_by_dtheta*zc - dzc_by_dtheta*xc)
+        Gs[0][2] = (fc/zc**2) * (dxc_by_dphi*zc - dzc_by_dphi*xc)
+        Gs[0][3] = 0
+        Gs[0][4] = 0
+        Gs[0][5] = 0
+        Gs[0][6] = fc/zc
+        Gs[0][7] = 0
+        Gs[0][8] = fc*xc/zc**2
+        Gs[1][0] = (fc/zc**2) * (dyc_by_dpsi*zc - dzc_by_dpsi*yc)
+        Gs[1][1] = (fc/zc**2) * (dyc_by_dtheta*zc - dzc_by_dtheta*yc)
+        Gs[1][2] = (fc/zc**2) * (dyc_by_dphi*zc - dzc_by_dphi*yc)
+        Gs[1][3] = 0
+        Gs[1][4] = 0
+        Gs[1][5] = 0
+        Gs[1][6] = 0
+        Gs[1][7] = fc/zc
+        Gs[1][8] = fc*yc/zc**2
+
+        return Gs
+
+
+
+
+
 
 
 

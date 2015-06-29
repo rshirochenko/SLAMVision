@@ -29,6 +29,8 @@ class Motion_model(object):
         # Update particles dictionary
         pose.euler_angles = euler_angles
         pose.angular_rates = angular_rates
+        print "Euler angles motion", pose.euler_angles
+        print "Angular rates", pose.angular_rates
 
     """ Estimate translational offset """
     def translational_optimization(self, particle, current_measurements):
