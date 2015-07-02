@@ -6,15 +6,29 @@ from math import sin, cos
 
 
 class Feature(object):
-    def __init__(self, mean, covariance, descriptor, debug_coord, debug_key):
+    """
+    Class describes the one feature(X) object
+    Attributes:
+        mean: mean vector [mean_x mean_y mean_z] for the feature
+        covariance: covariance matrix 3x3
+        descriptor: SIFT 128-vector descriptor for the correspondence between measurement(Z) and feature(X)
+        debug_coord: coordinate of the corresponded measurement(Z)
+        feature_key: index in the measurements table K
+    """
+    def __init__(self, mean, covariance, descriptor, debug_coord, feature_key):
         self.mean = mean
         self.covariance = covariance
         self.descriptor = descriptor
         self.debug_coord = debug_coord
-        self.debug_key = debug_key
+        self.feature_key = feature_key
 
 
 class XMapDictionary(object):
+    """
+    Class describes X map
+    Attributes:
+
+    """
     X_map_dict = []
 
     def update_X_map_dictionary(self, features_temp, current_measurements):
@@ -29,11 +43,18 @@ class XMapDictionary(object):
                 X_map_dict.append(feature)
 
 
-class FeaturesTemp(object):
+class FeaturesCache(object):
     measurement_dict = {}
     times_observed = {}
 
     def get_measurements(self, current_measurements, X_map_dict, pose):
+        """
+        Calculate the measurements for the current frame
+        Args:
+            current_measurements: current SIFTs measurements in the frame
+            X_map_dict: features map (X)
+            pose: pose for the current frame
+        """
         measurement_dict = self.measurement_dict
         cleared_measurements = {}
         # Check the measurement_dict for emptiness
@@ -56,6 +77,13 @@ class FeaturesTemp(object):
         self.check_add_to_Xmap(X_map_dict, cleared_measurements, pose)
 
     def init_get_measurements(self, current_measurements, X_map_dict, pose):
+        """
+        Calculate the measurements for the current frame
+        Args:
+            current_measurements: current SIFTs measurements in the frame
+            X_map_dict: features map (X)
+            pose: pose for the current frame
+        """
         measurement_dict = self.measurement_dict
         # Check the measurement_dict for emptiness
         if not bool(measurement_dict):
@@ -65,21 +93,42 @@ class FeaturesTemp(object):
             return
 
     def check_add_to_measurement_dict(self, key, current_measurement):
+        """
+        Args:
+            key: index of dictionary in table K of SIFTs measurements
+            pose: pose for the current frame
+        """
         measurement_dict = self.measurement_dict
         if key in measurement_dict:
             measurement_dict[key].append(current_measurement)
 
     def check_Xmap(self, X_map_dict, current_measurement, key):
+        """
+        Check if the converted measurement to feature will be in the X map
+        Args:
+            X_map_dict: X map of features (dictionary)
+            current_measurement: SIFTs measurements from the current frame(image)
+            key: index in the table K (dictionary data structure)
+        Returns:
+            result: boolean variable, if measurement will be found, then return True
+        """
         result = False
         for feature in X_map_dict:
             if calc_distance_two_descriptors(feature.descriptor, current_measurement.descriptor) < 100:
-                feature.debug_key = key
+                feature.feature_key = key
                 return True
             else:
                 result = False
         return result
 
     def check_add_to_Xmap(self, X_map_dict, cleared_measurements, pose):
+        """
+        Convert measurement to feature and add feature to X map
+        Args:
+            X_map_dict: X map of features (dictionary)
+            cleared_measurement: measurements that were not in the X map before
+            pose: pose for the current frame
+        """
         measurement_dict = self.measurement_dict
         times_observed = self.times_observed
         list_for_deleting = []
@@ -117,6 +166,11 @@ class FeaturesTemp(object):
                 pass
 
     def EKF_initialization(self, measurement_dict_element, pose):
+        """
+        Calculate the EKF for the new feature
+        Args:
+
+        """
         x = np.array([0.0, 0.0, 0.0]).reshape(3, 1)
         covariance = np.zeros((3, 3))
         i = 1
@@ -144,8 +198,12 @@ class FeaturesTemp(object):
         covariance = np.square(constants.sigma_meas)*covariance
         return x.reshape(3, 1), covariance
 
-    """Args: A, b matrix for the last measurements """
     def calc_feature(self, A, b):
+        """
+        Calculate the feature
+        Args:
+            A, b: matrix for the last measurements (Eq. 5.42)
+        """
         try:
             x = inv(A.T.dot(A)).dot(A.T).dot(b)
         except np.linalg.linalg.LinAlgError:
@@ -153,10 +211,17 @@ class FeaturesTemp(object):
             x = np.array([0, 0, 0]).reshape(3, 1)
         return x
 
-    """Args: img_coord - 1 measurements SIFT image coordination [u,v] """
     def calc_matrix_Ab_parameters(self, img_coord, pose):
-        Rci = rotation_matrix(pose)
-        Rmi = rotation_matrix(pose)
+        """
+        Calculate Ab parameters (Eq. 5.42)
+        Args:
+            img_coord: measurements SIFT image coordination [u,v]
+            pose: pose object
+        """
+        #Rci = rotation_matrix(pose)
+        #Rmi = rotation_matrix(pose)
+        Rci = np.eye(3)
+        Rmi = np.eye(3)
         p = pose.coordinates
         fc = constants.fc
 
@@ -189,8 +254,13 @@ class FeaturesTemp(object):
                       [img_coord[1] * o - fc * h]])
         return A, b
 
-    """Args: List[x[x y z]] - 3D feature coordinates list """
+
     def calc_mean(self):
+        """
+        Calculate mean
+        Args:
+            mean: [mx my mz] - 3D feature coordinates list
+        """
         x = 0
         y = 0
         z = 0
@@ -202,9 +272,12 @@ class FeaturesTemp(object):
         mean = np.array([x, y, z]) / number_of_features
         return mean
 
-    """Args: x[x y z]] - 3D feature coordinate
-    Output: Covariance matrix 3x3 """
     def calc_covariance(self):
+        """
+        Calculate covariance
+        Returns:
+            covariance: Covariance matrix 3x3
+        """
         std = self.calc_std_square()
         jac_sum = 0
         for feature in self.features_list:
@@ -230,14 +303,19 @@ class FeaturesTemp(object):
                              [g21, g22, g23]])
         return jacobian
 
-""" Calculate the distance between two 128-demensional sift features descriptors """
 def calc_distance_two_descriptors(d1, d2):
+    """
+    Calculate the distance between two 128-demensional sift features descriptors
+    """
     dist = np.linalg.norm(d1 - d2)
     return dist
 
-""" Form the rotation matrix that convert camera to map frame(C/M)
-Args: particle`s euler_angles array [psi theta phi] """
 def rotation_matrix_mi(pose):
+    """
+    Form the rotation matrix that convert camera to map frame(C/M)
+    Args:
+        pose: particle`s euler_angles array [psi theta phi]
+    """
     psi = pose.euler_angles[0]
     theta = pose.euler_angles[1]
     phi = pose.euler_angles[2]
@@ -247,9 +325,12 @@ def rotation_matrix_mi(pose):
                    [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*cos(phi)]])
     return Rcm
 
-""" Form the rotation matrix that convert camera to map frame(C/M)
-Args: particle`s euler_angles array [psi theta phi] """
 def rotation_matrix_ci(pose):
+    """
+    Form the rotation matrix that convert camera to map frame(C/M)
+    Args:
+        pose: particle`s euler_angles array [psi theta phi]
+    """
     psi = pose.euler_angles[0]
     theta = pose.euler_angles[1]
     phi = pose.euler_angles[2]
@@ -259,9 +340,12 @@ def rotation_matrix_ci(pose):
                    [cos(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), sin(phi)*sin(theta)*sin(phi)-sin(psi)*cos(phi), cos(theta)*cos(phi)]])
     return Rci
 
-""" Form the rotation matrix that convert camera to map frame(C/M)
-Args: particle`s euler_angles array [psi theta phi] """
 def rotation_matrix(pose):
+    """
+    Form the rotation matrix that convert camera to map frame(C/M)
+    Args:
+        pose: particle`s euler_angles array [psi theta phi]
+    """
     psi = pose.euler_angles[0]
     theta = pose.euler_angles[1]
     phi = pose.euler_angles[2]

@@ -5,63 +5,66 @@ import constants
 
 
 class FastSLAM(object):
-    fc = constants.fc
+    fc = constants.fc  # focal length
     Rprop = []
     M = constants.NUMBER_OF_PARTICLES  # total number of particles
 
-    #TODO: optimize the feature calculation in the camera frame using eq.5.4
-    """ FastSLAM 2.0 Proposal distribution for st
-    Time update for st
-    Args: particle - current particle from particle_filter(contains X_map_previous_step
-            and predicted st)
-         current_measurements -  measurements for the current time step
-    """
     def calc_position_proposal_distribution(self, particle, current_measurements):
+        #TODO: optimize the feature calculation in the camera frame using eq.5.4
+        """
+        FastSLAM 2.0 Proposal distribution for st
+        Time update for st
+        Args:
+            particle: current particle from particle_filter(contains X_map_previous_step and predicted st)
+            current_measurements: measurements for the current time step
+        """
         X_map = particle.X_map_dict
         covariance_sum = 0
         mean_part = 0
         for x in X_map:
-            if x.debug_key in current_measurements:
+            if x.feature_key in current_measurements:
                 mean = x.mean
                 X_c = self.convert_feature_to_camera_frame(particle.pose, mean)
                 measurement_predicted = self.measurement_model(X_c)
-                Gx = self.calc_jacobian_Gx(X_c)
-                Gs = self.calc_jacobian_Gs(X_c, particle.pose)
+                Gx = self.calc_jacobian_Gx(particle.pose, X_c)
+                Gs = self.calc_jacobian_Gs(particle.pose, X_c)
                 Q = self.calc_Q(Gx, x.covariance)
                 try:
                     covariance_sum += Gs.T.dot(inv(Q)).dot(Gs) + inv(constants.P)
-                    measurement_current = np.asarray(current_measurements[x.debug_key].point).reshape(2, 1)
+                    measurement_current = np.asarray(current_measurements[x.feature_key].point).reshape(2, 1)
                     mean_part += Gs.T.dot(inv(Q)).dot(measurement_current-measurement_predicted)
                 except:
                     return 1
         try:
             covariance_sum = inv(covariance_sum)
-            st = np.vstack((particle.pose.euler_angles, particle.pose.coordinates))
+            st = np.vstack((particle.pose.euler_angles, particle.pose.angular_rates, particle.pose.coordinates))
             mean_st = covariance_sum.dot(mean_part) + st
             particle.pose.euler_angles = mean_st[0:3]
-            particle.pose.coordinates = mean_st[3:6]
-            print "Euler angles", particle.pose.euler_angles
-            print "Coordinates", particle.pose.coordinates
+            particle.pose.anguar_rates = mean_st[3:6]
+            particle.pose.coordinates = mean_st[6:9]
+
         except np.linalg.linalg.LinAlgError:
             pass
 
 
-    def calc_position_proposal_distribution_fastslam1(self, particle, current_measurements):
-        particle.pose.coordinates = particle.pose.coordinates + constants.vnoise_process
-
-    """ Measurement update and particle weighting stage"""
     def measurement_update(self, particle, current_measurements):
+        """
+        Measurement update and particle weighting stage
+        Args:
+            particle: current particle from particle_filter(contains X_map_previous_step and predicted st)
+            current_measurements: measurements for the current time step
+        """
         X_map = particle.X_map_dict
         weight_total = 1
         for x in X_map:
-            if x.debug_key in current_measurements:
+            if x.feature_key in current_measurements:
                 mean = x.mean
                 covariance = x.covariance
                 X_c = self.convert_feature_to_camera_frame(particle.pose, mean)
                 measurement_predicted = self.measurement_model(X_c)
-                measurement_current = np.asarray(current_measurements[x.debug_key].point).reshape(2, 1)
-                Gx = self.calc_jacobian_Gx(X_c)
-                Gs = self.calc_jacobian_Gs(X_c, particle.pose)
+                measurement_current = np.asarray(current_measurements[x.feature_key].point).reshape(2, 1)
+                Gx = self.calc_jacobian_Gx(particle.pose, X_c)
+                Gs = self.calc_jacobian_Gs(particle.pose, X_c)
 
                 #EKF measurement update
                 mean_updated, covariance_updated, Q = self.EKF_measurement_update(Gx, Gs, mean, covariance, measurement_current, measurement_predicted)
@@ -76,8 +79,10 @@ class FastSLAM(object):
                 weight_total = weight_total * weight
         return weight_total
 
-    """ Particle weight resampling stage"""
     def check_for_resampling(self, weight_sum):
+        """
+        Particle weight resampling stage
+        """
         try:
             Meff = 1.0/weight_sum
         except ZeroDivisionError:
@@ -86,6 +91,17 @@ class FastSLAM(object):
             return 1
 
     def EKF_measurement_update(self, Gx, Gs, mean, covariance, measurement_current, measurement_predicted):
+        """
+        Form the EKF of feature
+        Args:
+            Gx: jacobian by x
+            Gs: jacobian by s
+            mean: mean value of feature [mx my mz]
+            covariance: covariance matrix 3x3
+            measurement_current: measurement from the SIFTs estimation
+            measurement_predicted: measurement calculated based on pose and previous measurement information
+
+        """
         sigma = constants.sigma_meas
         P = constants.P
         Q = Gs.dot(P).dot(Gs.T) + Gx.dot(covariance).dot(Gx.T) + sigma*np.eye(2)
@@ -96,44 +112,27 @@ class FastSLAM(object):
 
 
     def convert_feature_to_camera_frame(self, input_pose, mean):
+        """
+        Convert feature from map frame to camera frame
+        """
         coords = input_pose.coordinates
         Rcm = self.form_matrix_Rcm(input_pose)
         X_c = Rcm.dot(mean) + coords
         return X_c
 
     def measurement_model(self, Xc):
+        """
+        Calculate the coordinates of measurement(2D point) from the feature(3D point)
+        """
         #TODO:debug for another features
         if (Xc.shape == (3,1)):
             measurement = (self.fc/float(Xc[2]))*(Xc[:2])
             return measurement
 
-    def calc_jacobian_Gs(self, feature, pose):
-        x = float(feature[0])
-        y = float(feature[1])
-        z = float(feature[2])
-        px = float(pose.coordinates[0])
-        py = float(pose.coordinates[1])
-        pz = float(pose.coordinates[2])
-        fc = self.fc
-        dg_by_dx = np.array([[fc/z, 0, ((-1)*fc*x)/(z*z)],
-                              [0, fc/(z*z), ((-1)*fc*y)/(z*z)]])
-        dx_by_ds = np.array([[(-1)*y+px, z - pz, 0, 1, 0, 0],
-                              [x - px, 0, -z +pz, 0, 1, 0],
-                              [0, -x + px, y - py, 0, 0, 1]])
-        Gs = dg_by_dx.dot(dx_by_ds)
-        return Gs
-
-    def calc_jacobian_Gx(self, feature):
-        x = float(feature[0])
-        y = float(feature[1])
-        z = float(feature[2])
-        fc = self.fc
-        dg_by_dx = np.array([[fc/z, 0, ((-1)*fc*x)/(z*z)],
-                             [0, fc/(z*z), ((-1)*fc*y)/(z*z)]])
-        Gx = dg_by_dx
-        return Gx
-
     def form_matrix_Rcm(self, input_pose):
+        """
+        Calculate the matrix Rcm
+        """
         euler_angles = input_pose.euler_angles
         psi = euler_angles[0]
         theta = euler_angles[1]
@@ -158,15 +157,21 @@ class FastSLAM(object):
 
     #TODO: Add Rprop
     def calc_Q(self, Gx, covariance):
+        """
+        Calculate the Q
+        """
         Q = Gx.dot(covariance).dot(Gx.T)
         return Q
 
     def calc_jacobian_Gx(self, input_pose, feature):
+        """
+        Calculate jacobian by x(feature) Gx
+        """
         fc = self.fc
 
-        x = feature.mean[0]
-        y = feature.mean[1]
-        z = feature.mean[2]
+        x = feature[0]
+        y = feature[1]
+        z = feature[2]
 
         px = input_pose.coordinates[0]
         py = input_pose.coordinates[1]
@@ -190,11 +195,14 @@ class FastSLAM(object):
         return Gx
 
     def calc_jacobian_Gs(self, input_pose, feature):
+        """
+        Calculate jacobian by s(pose) Gs
+        """
         fc = self.fc
 
-        x = feature.mean[0]
-        y = feature.mean[1]
-        z = feature.mean[2]
+        x = feature[0]
+        y = feature[1]
+        z = feature[2]
 
         euler_angles = input_pose.euler_angles
         psi = euler_angles[0]
@@ -244,11 +252,3 @@ class FastSLAM(object):
         Gs[1][8] = fc*yc/zc**2
 
         return Gs
-
-
-
-
-
-
-
-
